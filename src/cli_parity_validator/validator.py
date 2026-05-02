@@ -18,6 +18,8 @@ from typing import Iterable, List, Optional, Set
 
 import yaml
 
+__version__ = "1.0.0"
+
 
 # ── AST-based tool extraction ──────────────────────────────────────────────
 
@@ -70,12 +72,20 @@ def _collect_tools_from_tree(tree: ast.AST) -> Set[str]:
 
 
 def load_python_mcp_tools(paths: List[Path]) -> Set[str]:
-    """Extract @mcp.tool-decorated tool names from a list of Python source files."""
+    """Extract @mcp.tool-decorated tool names from a list of Python source files.
+
+    Missing paths are silently skipped; callers that need to surface
+    unreachable-file warnings should check path existence before calling
+    (e.g. the :func:`validate` function does this and emits a warning).
+    """
     tools: Set[str] = set()
     for path in paths:
         if not path.exists():
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError:
+            continue
         tools |= _collect_tools_from_tree(tree)
     return tools
 
@@ -154,6 +164,12 @@ def validate(config: ParityValidatorConfig) -> ValidationResult:
     warnings: List[str] = []
     info: List[str] = []
 
+    # Warn about unreachable source files before extraction so callers
+    # get explicit feedback rather than silent false-negatives.
+    for p in config.server_paths:
+        if not p.exists():
+            warnings.append(f"source file not found (skipped): {p}")
+
     # Extract tools from Python source files
     source_tools = load_python_mcp_tools(config.server_paths)
     info.append(f"source tools (@mcp.tool): {len(source_tools)}")
@@ -231,3 +247,101 @@ def validate(config: ParityValidatorConfig) -> ValidationResult:
         manifest_tool_count=len(manifest_tools),
         error_count=len(errors),
     )
+
+
+def main() -> None:  # noqa: C901 — intentionally compact CLI glue
+    """CLI entry point: ``cli-parity``."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="cli-parity",
+        description="Validate MCP tool exposure consistency across CLI agents.",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"cli-parity-validator {__version__}"
+    )
+    parser.add_argument(
+        "--schema",
+        type=Path,
+        metavar="FILE",
+        help="YAML/JSON schema file declaring expected tools per server.",
+    )
+    parser.add_argument(
+        "--agent-tools",
+        dest="agent_tools",
+        type=Path,
+        metavar="DIR",
+        help="Directory of per-agent YAML role files to validate.",
+    )
+    parser.add_argument(
+        "--required-tools",
+        dest="required_tools",
+        type=Path,
+        metavar="FILE",
+        help="Text file (one tool per line) of required tools.",
+    )
+    parser.add_argument(
+        "--server",
+        nargs="+",
+        default=["default"],
+        metavar="NAME",
+        help="Server name(s) to check in the schema (default: 'default').",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as errors (non-zero exit on any warning).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        type=Path,
+        metavar="FILE",
+        help="Python source files to scan for @mcp.tool decorators.",
+    )
+
+    args = parser.parse_args()
+
+    required_tools: Set[str] = set()
+    if args.required_tools and Path(args.required_tools).exists():
+        required_tools = {
+            line.strip()
+            for line in Path(args.required_tools).read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+
+    config = ParityValidatorConfig(
+        server_paths=list(args.paths or []),
+        schema_path=args.schema,
+        agent_tools_dir=args.agent_tools,
+        required_tools=required_tools,
+        server_names=args.server,
+        strict=args.strict,
+    )
+
+    result = validate(config)
+
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": result.ok,
+                    "violations": result.violations,
+                    "source_tool_count": result.source_tool_count,
+                    "manifest_tool_count": result.manifest_tool_count,
+                    "lines": result.lines,
+                },
+                indent=2,
+            )
+        )
+    else:
+        for line in result.lines:
+            print(line)
+
+    sys.exit(0 if result.ok else 1)

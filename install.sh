@@ -16,6 +16,14 @@ detect_platform() {
     else echo "linux"; fi
 }
 
+detect_pkg_manager() {
+    if command -v apt-get &>/dev/null; then echo "apt"
+    elif command -v dnf &>/dev/null; then echo "dnf"
+    elif command -v pacman &>/dev/null; then echo "pacman"
+    elif command -v apk &>/dev/null; then echo "apk"
+    else echo "unknown"; fi
+}
+
 install_deps_system() {
     local plat="$1"
     info "Installing system dependencies ($plat)..."
@@ -25,16 +33,28 @@ install_deps_system() {
             pkg install -y python git
             ;;
         wsl|linux)
-            if command -v apt-get &>/dev/null; then
-                sudo apt-get update -qq
-                sudo apt-get install -y python3 python3-venv python3-pip git
-            elif command -v dnf &>/dev/null; then
-                sudo dnf install -y python3 python3-virtualenv git
-            elif command -v pacman &>/dev/null; then
-                sudo pacman -Sy --noconfirm python git
-            else
-                warn "Unknown package manager — ensure python3, pip, and git are installed"
-            fi
+            local pm
+            pm=$(detect_pkg_manager)
+            case "$pm" in
+                apt)
+                    sudo apt-get update -qq
+                    sudo apt-get install -y python3 python3-venv python3-pip git
+                    ;;
+                dnf)
+                    sudo dnf install -y python3 python3-virtualenv git
+                    ;;
+                pacman)
+                    sudo pacman -Sy --noconfirm python git
+                    ;;
+                apk)
+                    # Alpine Linux — py3-pip ships a venv-capable pip
+                    sudo apk update
+                    sudo apk add --no-cache python3 py3-pip git
+                    ;;
+                *)
+                    warn "Unknown package manager — ensure python3, pip, and git are installed"
+                    ;;
+            esac
             ;;
     esac
 }
