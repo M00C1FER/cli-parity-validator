@@ -27,6 +27,6 @@ with tempfile.TemporaryDirectory() as d:
     print(f"Parity pass: {result.pass_count}/{result.total}")
     print(f"Violations:  {result.violations}")
     for v in result.violation_details:
-        print(f"  ✗ {v}")
+        print(f"  \u2717 {v}")
     if result.all_pass:
         print("All schemas match.")

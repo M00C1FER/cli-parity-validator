@@ -44,15 +44,18 @@ class ParityValidator:
     def __init__(self, config: ValidationConfig) -> None:
         self.config = config
 
-    def validate(self) -> ValidationResult:
+    def validate(self) -> "ParityResult":
         base = Path(self.config.base_dir)
         target = Path(self.config.target_dir)
         errors: List[str] = []
         lines: List[str] = []
         total_base = 0
         total_target = 0
+        file_count = 0
+        pass_count = 0
 
         for base_file in sorted(base.glob("*.json")):
+            file_count += 1
             target_file = target / base_file.name
             if not target_file.exists():
                 errors.append(f"missing in target: {base_file.name}")
@@ -70,10 +73,16 @@ class ParityValidator:
             total_base += len(base_tools)
             total_target += len(target_tools)
 
+            file_errors: List[str] = []
             for t in sorted(target_tools - base_tools):
-                errors.append(f"extra in target ({base_file.name}): {t}")
+                file_errors.append(f"extra in target ({base_file.name}): {t}")
             for t in sorted(base_tools - target_tools):
-                errors.append(f"missing from target ({base_file.name}): {t}")
+                file_errors.append(f"missing from target ({base_file.name}): {t}")
+
+            if file_errors:
+                errors.extend(file_errors)
+            else:
+                pass_count += 1
 
         ok = len(errors) == 0
         if ok:
@@ -81,19 +90,38 @@ class ParityValidator:
         else:
             lines.extend(errors)
 
-        return ValidationResult(
+        return ParityResult(
             ok=ok,
             lines=lines,
             source_tool_count=total_base,
             manifest_tool_count=total_target,
             error_count=len(errors),
+            total=file_count,
+            pass_count=pass_count,
         )
+
+
+@dataclass
+class ParityResult(ValidationResult):
+    """Extended result returned by :class:`ParityValidator`.
+
+    Adds ``total`` (files checked) and ``pass_count`` (files without violations)
+    to the base :class:`ValidationResult`.
+    """
+    total: int = 0
+    pass_count: int = 0
+
+    @property
+    def violation_details(self) -> List[str]:
+        """List of individual violation strings (same as ``lines`` when there are errors)."""
+        return [line for line in self.lines if not line.startswith("OK:")]
 
 
 __all__ = [
     "ValidationConfig",
     "ValidationResult",
     "ParityValidator",
+    "ParityResult",
     "ParityValidatorConfig",
     "validate",
 ]
