@@ -116,6 +116,16 @@ class ValidationResult:
     manifest_tool_count: int = 0
     error_count: int = 0
 
+    @property
+    def all_pass(self) -> bool:
+        """Alias for ``ok`` — True when no violations were found."""
+        return self.ok
+
+    @property
+    def violations(self) -> int:
+        """Alias for ``error_count`` — number of parity violations detected."""
+        return self.error_count
+
 
 # ── Core validator ─────────────────────────────────────────────────────────
 
