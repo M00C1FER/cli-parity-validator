@@ -93,10 +93,13 @@ def load_python_mcp_tools(paths: List[Path]) -> Set[str]:
 def load_schema(path: Path) -> dict:
     """Load a YAML or JSON schema file into a dict."""
     with path.open("r", encoding="utf-8") as fh:
-        if path.suffix in (".yaml", ".yml"):
-            data = yaml.safe_load(fh) or {}
-        else:
-            data = json.load(fh) or {}
+        try:
+            if path.suffix in (".yaml", ".yml"):
+                data = yaml.safe_load(fh) or {}
+            else:
+                data = json.load(fh) or {}
+        except (yaml.YAMLError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Malformed schema file '{path}': {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Expected mapping at {path}")
     return data
